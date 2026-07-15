@@ -1,79 +1,79 @@
 # dev-agent-plugins
 
-Reusable development workflow skills for Codex CLI and Claude Code. One shared `skills/` tree is distributed through native marketplace manifests for both tools.
+Codex CLIとClaude Codeの両方で使える、開発ワークフロー用skill集です。共通の`skills/`を、それぞれの公式marketplace形式で配布します。
 
-## Included skills
+## 収録skill
 
-- `gtr-new`: issue or branch to worktree, implementation, pull request, tests, CI, and review automation
-- `critics-reviewer`: parallel critical pull request review
-- `loop-critics-fix`: repeat review and fixes until no new findings remain
-- `review-comment-analysis`: analyze, fix, reply to, and resolve review comments
-- `suggest-skill`: identify reusable workflows from the current session
-- Supporting skills used by these workflows, including PR descriptions, test planning, AI review requests, and review summaries
+- `gtr-new`: issueまたはPRからworktreeを作成し、実装・PR作成・テスト・CI・レビュー対応まで実行
+- `critics-reviewer`: 専門レビュワーによる並列の批判的PRレビュー
+- `loop-critics-fix`: 新しい指摘がなくなるまでレビューと修正を反復
+- `review-comment-analysis`: レビューコメントの分析・修正・返信・resolve
+- `suggest-skill`: 現在のセッションから再利用可能なワークフローを提案
+- 上記を支えるPR description作成、テスト追加、AIレビュー依頼、レビュー要約などのskill
 
-## Requirements
+## 必要なもの
 
-- A recent Codex CLI or Claude Code release with plugin marketplace support
-- GitHub CLI (`gh`) authenticated for GitHub workflows
-- `git gtr` for the worktree workflows
-- Project-specific instructions such as `AGENTS.md` or `CLAUDE.md`
+- plugin marketplaceに対応した新しいバージョンのCodex CLIまたはClaude Code
+- GitHub関連のskillを使う場合は、認証済みのGitHub CLI（`gh`）
+- worktree関連のskillを使う場合は、`git gtr`
+- 対象プロジェクトの`AGENTS.md`や`CLAUDE.md`などの指示ファイル
 
-## Install for Codex CLI
+## Codex CLIへのインストール
 
 ```bash
 codex plugin marketplace add Eiji-Kudo/dev-agent-plugins --ref main
 codex plugin add dev-agent-plugins@eiji-dev-tools
 ```
 
-Invoke a skill by name, for example:
+skill名を指定して実行します。
 
 ```text
 $dev-agent-plugins:gtr-new 123
 $dev-agent-plugins:loop-critics-fix 456
 ```
 
-## Install for Claude Code
+## Claude Codeへのインストール
 
 ```bash
 claude plugin marketplace add Eiji-Kudo/dev-agent-plugins
 claude plugin install dev-agent-plugins@eiji-dev-tools
 ```
 
-Invoke a skill through the plugin namespace:
+pluginのnamespaceを付けて実行します。
 
 ```text
 /dev-agent-plugins:gtr-new 123
 /dev-agent-plugins:loop-critics-fix 456
 ```
 
-## Runtime compatibility
+## 実行環境の互換性
 
-The skills use the runtime's available filesystem, shell, web, and sub-agent mechanisms. References to an `Agent` or a background agent mean Claude Code's Agent tools or Codex CLI's collaboration sub-agents, depending on the active runtime.
+各skillは、実行環境が提供するファイル操作、shell、web、サブエージェント機能を使用します。`Agent`やバックグラウンドagentという記述は、実行環境に応じてClaude CodeのAgent機能またはCodex CLIのcollaboration sub-agentを意味します。
 
-Skill arguments mean `$ARGUMENTS` in Claude Code and the text following the selected skill in Codex CLI.
+skillの引数は、Claude Codeでは`$ARGUMENTS`、Codex CLIではskill名の後に続くテキストとして扱います。
 
-## Development
+## 開発・検証
 
-Validate the Claude Code marketplace and plugin:
+Claude Codeのmarketplaceとpluginを検証します。
 
 ```bash
 claude plugin validate .
 claude plugin validate ./plugins/dev-agent-plugins
 ```
 
-Test the Claude Code plugin without installation:
+インストールせずにClaude Codeのpluginを試します。
 
 ```bash
 claude --plugin-dir ./plugins/dev-agent-plugins
 ```
 
-Test the Codex marketplace locally:
+Codexのmarketplaceをローカルで試します。
 
 ```bash
 codex plugin marketplace add .
 codex plugin add dev-agent-plugins@eiji-dev-tools
 ```
 
-## License
+## ライセンス
 
-MIT
+MITライセンスです。商用利用、改変、再配布が可能です。詳しくは[LICENSE](./LICENSE)を参照してください。
