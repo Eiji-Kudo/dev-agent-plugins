@@ -1,0 +1,37 @@
+{
+  "name": "dev-agent-plugins",
+  "version": "0.1.0",
+  "description": "Reusable GitHub, worktree, testing, and critical review workflows for software development agents.",
+  "author": {
+    "name": "Eiji Kudo",
+    "url": "https://github.com/Eiji-Kudo"
+  },
+  "homepage": "https://github.com/Eiji-Kudo/dev-agent-plugins",
+  "repository": "https://github.com/Eiji-Kudo/dev-agent-plugins",
+  "license": "MIT",
+  "keywords": [
+    "codex",
+    "claude-code",
+    "agent-skills",
+    "code-review",
+    "github"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Dev Agent Plugins",
+    "shortDescription": "Reusable PR and review workflows",
+    "longDescription": "Create worktrees and pull requests, run critical reviews, add tests, handle review comments, and improve recurring agent workflows.",
+    "developerName": "Eiji Kudo",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Interactive",
+      "Write"
+    ],
+    "websiteURL": "https://github.com/Eiji-Kudo/dev-agent-plugins",
+    "defaultPrompt": [
+      "Create a worktree and complete a pull request workflow",
+      "Run a critical review and fix loop",
+      "Analyze and address pull request review comments"
+    ]
+  }
+}

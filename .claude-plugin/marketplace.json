@@ -1,0 +1,14 @@
+{
+  "name": "eiji-dev-tools",
+  "description": "Reusable development workflow plugins for Codex CLI and Claude Code",
+  "owner": {
+    "name": "Eiji Kudo"
+  },
+  "plugins": [
+    {
+      "name": "dev-agent-plugins",
+      "source": "./plugins/dev-agent-plugins",
+      "description": "Reusable development workflows for Codex CLI and Claude Code"
+    }
+  ]
+}
