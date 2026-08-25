@@ -1,6 +1,6 @@
 {
   "name": "dev-agent-plugins",
-  "version": "0.1.0",
+  "version": "0.1.0+codex.20260825034140",
   "description": "Reusable GitHub, worktree, testing, and critical review workflows for software development agents.",
   "author": {
     "name": "Eiji Kudo",

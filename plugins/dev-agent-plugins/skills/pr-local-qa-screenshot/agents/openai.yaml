@@ -1,0 +1,4 @@
+interface:
+  display_name: "PR Local QA Screenshot"
+  short_description: "Verify locally, publish screenshots, then clean the PR diff"
+  default_prompt: "Use $pr-local-qa-screenshot to verify this PR locally, add screenshots to its description, and remove temporary image files from the final diff."

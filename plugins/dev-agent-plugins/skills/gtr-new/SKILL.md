@@ -23,7 +23,7 @@ allowed-tools: Bash(git gtr:*), Bash(gh issue:*), Bash(gh pr:*), Bash(git fetch:
   - フェーズ4: refine（loop-critics-fix）
   - フェーズ5: 自動テスト追加（pr-test）
   - フェーズ6: CI チェック
-  - フェーズ7: PR description更新
+  - フェーズ7: PR description更新（必要ならローカルQA・スクリーンショット掲載）
   - フェーズ8: Ready for Review
   - フェーズ9: AIレビュー依頼（request-ai-review）
   - フェーズ10: PR解説md作成（pr-explain）
@@ -31,7 +31,7 @@ allowed-tools: Bash(git gtr:*), Bash(gh issue:*), Bash(gh pr:*), Bash(git fetch:
   - フェーズ12: AIレビュー出揃い監視 → review-comment-analysis 自動実行
 - 中間報告では、**完了したフェーズ番号** と **未完了フェーズ番号** を明示すること
 - フェーズ3（PR作成）完了時点では、**絶対に完了報告しない**。その時点は「中間報告」であり、必ず refine 以降へ進むこと
-- `loop-critics-fix`、`pr-test`、`CI チェック`、`PR description更新`、`Ready for Review`、`request-ai-review`、`pr-explain`、`summarize-resolved` は省略不可。未実施のまま「完了」「done」「Ready for Review」と報告してはいけない
+- `loop-critics-fix`、`pr-test`、`CI チェック`、`PR description更新`、`Ready for Review`、`request-ai-review`、`pr-explain`、`summarize-resolved` は省略不可。ユーザーに見えるUI変更でスクリーンショットがレビュー判断に有効な場合は、フェーズ7の`pr-local-qa-screenshot`も省略しない。未実施のまま「完了」「done」「Ready for Review」と報告してはいけない
 - 途中で中断・保留する場合は、「最後に完了したフェーズ」と「残っている必須フェーズ」を明示して終了すること
 
 ## フォローアップ issue の取り扱い（全フェーズ横断・必須）
@@ -291,6 +291,16 @@ PR番号は フェーズ3 で作成したPR、またはPR入力の場合はフ�
 `../pr-description/SKILL.md` を Read で読み込み、その手順に従ってPR descriptionを生成・更新する。
 
 CI結果や最終的な差分を反映した状態で実行し、PR本文・タイトル・動作確認チェックリストを最新化する。追加した自動テスト（フェーズ5）の内容も description に反映する。
+
+### 必要な場合のローカルQA・スクリーンショット掲載
+
+ユーザーに見えるUI変更があり、ユーザーがスクリーンショットを求めた場合、または表示差分を画像で示すことがレビュー判断に有効な場合は、PR description更新後に`../pr-local-qa-screenshot/SKILL.md`をReadして実行する。バックエンド・設定・文書のみの変更や、画像が判断材料にならない変更では実行せず、スキップ理由を保持する。
+
+- ローカルで実際の変更箇所を操作し、期待するDOM・操作結果の検証と画像の目視確認を両方行う
+- スクリーンショットは一時コミットの完全長OIDへ固定したURLでPR descriptionに掲載する
+- 撮影用route・script・Markdown・`temp-docs`のPNGを後続コミットで削除し、最終PR差分に残さない
+- PNG削除後も固定コミット上の画像が取得でき、PR descriptionに表示されることを確認する
+- screenshot commitの履歴を書き換えない。後続でsquash / rebase / force rewriteが必要になった場合は、新しい到達可能なOIDで掲載処理をやり直す
 
 ## フェーズ8: Ready for Review
 
