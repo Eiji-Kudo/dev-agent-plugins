@@ -65,6 +65,16 @@ $ARGUMENTS は以下のいずれか:
 
 **引数なしの場合**: 直前のセッションでの作業文脈（ファイル変更・議論内容）からブランチ名を自動生成する。命名規則: `<prefix>/<descriptive-slug>`（例: `feat/podcast-gen-cli-line-preview`）。issue 紐付け無しで進む。途中で「issue 番号教えて」「issue 作る?」とユーザーに確認しない。
 
+### 最終AIレビュー依頼前のbase更新は再検証して自動続行
+
+最終AIレビューの依頼準備前は、通常のbase前進や、この実行が行ったbase統合だけを理由に停止・承認待ち・「続けて」の要求をしない。下位skillの一律停止規則より先に次の再検証を行い、条件を満たせば同じ実行を続ける。
+
+- canonical PR URLに固定して、host・base/head repository・base/head branch・PRのopen状態・編集権限・worktree path / branchを再取得し、保存値との一致を確認する。base更新は同じrepository / branchをfetchし、`git merge-base --is-ancestor <old-base> <new-base>`で通常の前進を証明する。GraphQLのbase OIDとfetchしたbranch先端は別々に記録し、GraphQL側の変更にもancestor証明と同じbase履歴上にあることの確認を要求する。
+- local / raw remote / GitHub headが保存したexpected OIDと一致し、statusが作業中のexact scopeだけであることを確認する。自分の統合push直後だけは、記録済みparent・統合base・解消path・commit OID・push証跡に一致する新headを採用できる。他者のhead更新は採用しない。GitHubの反映遅延は最大60秒read-only再取得し、書き込みは再実行しない。
+- 競合解消にbase統合が必要ならcleanな対象worktreeで統合前head・統合base・対象pathを記録し、既存コメントと双方の変更意図を保持して解消・検証する。push前にremote headの不変と、そのremote OIDがlocal HEADのancestorであることを検証し、保存remote OIDを指定したexact `--force-with-lease`と明示refspecでdry-run / pushする。不要なmerge commitや履歴の書き換えは行わない。
+- 証明と旧 / 新base、必要なら統合headとpush証跡を保持してexpected値を更新する。更新後のPR差分を再取得し、影響するreview・test・CI・成果物を再実行して残りを続ける。この検証済み更新を再びidentity不一致として停止しない。
+- base retarget、履歴の書き換え、対象や権限の変更、他者のhead更新、想定外のdirty差分、収束不能、証跡不足、意図を判断できない競合は停止する。最終AIレビュー依頼準備以降にはこの例外を適用せず、依頼境界の無効化・再依頼の手順を使う。古いレビュー結果を新しい差分の完了証拠へ流用しない。
+
 ## フェーズ1: セットアップ
 
 ### 1. 入力の解析
