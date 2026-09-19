@@ -1,9 +1,9 @@
 ---
 name: critics-reviewer
-description: サブエージェントを使ってPRを専門レビュワーで並列に批判的レビューする
+description: Agent Teamsを使ってPRを専門レビュワーで並列に批判的レビューする
 ---
 
-実行環境のサブエージェント機能を使い、PRの変更内容を専門レビュワーで並列に批判的レビューする。
+Agent ツールをふんだんに使い、PRの変更内容を専門レビュワーで並列に批判的レビューする。
 エージェントの数もtokenも惜しまず使うこと。コンテキスト収集・レビュー・相互検証・解説充実の各フェーズで、必要と思われるだけ並列エージェントをふんだんに起動する。
 レビュワーの人数・専門領域はPRの内容に応じて動的に決定する。
 レビュワーの結果をリードが統合し、相互検証の判断を行う（competing hypotheses パターン）。
@@ -34,26 +34,30 @@ diffはプロジェクトルートの `pr-<PR番号>-diff.txt` に保存し、�
 
 #### 段階1: ファイルシステム上の確認
 
-以下のパスにファイルが存在するか確認する:
+Glob で `**/critics-review-pr-<PR番号>.md`、`**/critics-review-pr-<PR番号>-backend.md`、`**/critics-review-pr-<PR番号>-frontend.md` を検索し、同じ PR 番号のactiveな成果物をすべて確認する。代表的な保存先は以下だが、既存ファイルが別のサブディレクトリにある場合も検索結果から除外しない。`*-resolved.md`は要約成果物なのでactiveな`CRITICS_PATHS`に含めない。また、過去のcritics reviewをアーカイブ用ディレクトリ（例: `.archive/past-critics/`）へ退避している場合、そこはarchiveでありactiveな保存先として扱わない:
 
-- `documents/critics-review-pr-<PR番号>.md`
-- `documents/critics-review-pr-<PR番号>-backend.md`
-- `documents/critics-review-pr-<PR番号>-frontend.md`
+- `temp-docs/critics-review-pr-<PR番号>.md`
+- `temp-docs/critics-review-pr-<PR番号>-backend.md`
+- `temp-docs/critics-review-pr-<PR番号>-frontend.md`
 - プロジェクトルート直下の `critics-review-pr-<PR番号>.md`
 
-#### 段階2: git履歴の確認（段階1で見つからなかった場合）
+見つかった相対パスを exact list の `CRITICS_PATHS` として記録し、以降の更新・報告ではこのリストを引き継ぐ。分割構成なら backend / frontend の両方を含め、単一ファイルに決め打ちしない。
 
-ファイルが現在のツリーに存在しない場合、過去のコミットで作成・削除されている可能性がある。以下のコマンドで確認する:
+#### 段階2: git履歴の確認（段階1の件数にかかわらず実施）
 
-```bash
-git log --oneline -- 'documents/critics-review-pr-<PR番号>.md' '*critics-review-pr-<PR番号>.md'
-```
-
-コミット履歴がある場合、最新の削除コミットの直前の内容を復元する:
+段階1で一部のsplitファイルだけが見つかった場合も含め、過去のコミットで同時に存在した同じPRの保存pathを以下のコマンドで確認する:
 
 ```bash
-git show <削除コミット>^:documents/critics-review-pr-<PR番号>.md
+git log --oneline -- ':(glob)**/critics-review-pr-<PR番号>.md' ':(glob)**/critics-review-pr-<PR番号>-backend.md' ':(glob)**/critics-review-pr-<PR番号>-frontend.md'
 ```
+
+コミット履歴がある場合、履歴に記録された実際の保存パスをすべて特定する。段階1が0件なら最新の削除直前にactiveだったpath setを対象にし、1件以上なら現存するactive pathと過去に同時存在して現在のツリーから欠けているpathだけを対象にする。各対象pathを削除した最新コミットの直前の内容を読み、現存pathと同時存在しなかった旧レイアウトや、アーカイブ用ディレクトリに同名のarchiveがあるpathは復元しない:
+
+```bash
+git show <各pathを削除したコミット>^:<実際の保存パス>
+```
+
+読み取った全ファイルをそれぞれ元の相対pathへ復元し、すべて`CRITICS_PATHS`に含める。split構成の一部だけを復元しない。
 
 #### 既存ドキュメントが見つかった場合（段階1 または 段階2）:
 
@@ -66,6 +70,7 @@ git show <削除コミット>^:documents/critics-review-pr-<PR番号>.md
 - **レビュー回数をインクリメント**する（例: 前回が6回目なら今回は7回目）
 - 過去の対応済み・対応不要の懸念点はそのまま引き継ぎ、新規の懸念点のみ追加する
 - 既存の未対応懸念点についても、本文・コード引用・議論メモを可能な限り保持し、必要箇所だけ更新する
+- 更新対象にした実際の相対パスを `CRITICS_PATHS` に保持し、呼び出し元へ exact list で返す
 
 #### 既存ドキュメントが見つからなかった場合（両段階とも該当なし）:
 
@@ -75,7 +80,7 @@ git show <削除コミット>^:documents/critics-review-pr-<PR番号>.md
 
 プロジェクトルートおよび変更ファイルが属するディレクトリから、以下のファイルを探索する:
 
-- `CLAUDE.md` / `CLAUDE.local.md`
+- `AGENTS.md` / `CLAUDE.md` / `CLAUDE.local.md`
 - `AGENTS.md`
 - `CONTRIBUTING.md`
 - `GUIDELINES.md`
@@ -116,7 +121,7 @@ git show <削除コミット>^:documents/critics-review-pr-<PR番号>.md
 
 #### 起動方式
 
-- Claude CodeではAgent、Codex CLIではcollaboration sub-agentなど、実行環境で利用可能なサブエージェント機能を使用
+- Agent ツール（`subagent_type: "Explore"`）を使用
 - 変更ファイルの領域ごと（例: API層、DB層、フロントエンド、テスト等）に1エージェントずつ割り当て、必要な数だけふんだんに並列起動する
 - すべてのエージェントを1つのメッセージ内で同時に並列起動する
 
@@ -133,10 +138,10 @@ git show <削除コミット>^:documents/critics-review-pr-<PR番号>.md
 
 各エージェントの報告を受け取り、コンテキスト情報としてレビュワーへの指示に組み込む。
 
-### 5. 並列サブエージェントによるレビュー実行
+### 5. 並列 Task agent によるレビュー実行
 
-決定したレビュワー構成に基づき、実行環境で利用可能な高性能モデルの**サブエージェントを並列に起動する**。
-利用可能な並列呼び出しをまとめて行い、すべてのレビュワーを同時に起動すること。
+決定したレビュワー構成に基づき、**Agent ツール（`subagent_type: "general-purpose"`, `model: "opus"`）を使って並列にレビュワーを起動する**。
+すべてのレビュワーを **1つのメッセージ内で同時に** Agent ツールを呼び出して並列起動すること。
 
 各レビュワーの Agent プロンプトには以下を含めること:
 - レビュワーの役割と専門領域
@@ -167,7 +172,7 @@ git show <削除コミット>^:documents/critics-review-pr-<PR番号>.md
 
 #### 起動方式
 
-- 実行環境で利用可能なサブエージェント機能を使用
+- Agent ツール（`subagent_type: "general-purpose"`, `model: "opus"`）を使用
 - 検証の観点ごとにエージェントをふんだんに起動する（例: 「矛盾検出」「重複検出」「確信度低の検証」「コード実態との照合」等）
 - すべてのエージェントを1つのメッセージ内で同時に並列起動する
 
@@ -199,7 +204,7 @@ git show <削除コミット>^:documents/critics-review-pr-<PR番号>.md
 
 #### 起動方式
 
-- 実行環境で利用可能なサブエージェント機能を使用
+- Agent ツール（`subagent_type: "general-purpose"`, `model: "opus"`）を使用
 - 懸念点を均等に分割し、ふんだんにサブエージェントを並列起動する。エージェント数を節約しようとせず、惜しまず使うこと
 - すべてのサブエージェントを1つのメッセージ内で同時に並列起動する
 
@@ -315,12 +320,12 @@ git show <削除コミット>^:documents/critics-review-pr-<PR番号>.md
 - 既存が単一ファイルなら、今回の懸念点が増えても**勝手に分割しない**
 - 既存が分割ファイルなら、その分割構成を維持する
 - 構成変更（単一→分割、分割→単一）は、既存ファイルが存在しない新規作成時だけ許可する
-- 「documents/ があるから移動する」のようなパス変更は禁止。蓄積済み情報を優先する
+- 「temp-docs/ があるから移動する」のようなパス変更は禁止。蓄積済み情報を優先する
 
 PRの変更ファイルがフロントエンド・バックエンドの両方に跨り、懸念点が多い場合（目安: 合計10件以上）、ドキュメントを分割する:
 
-- `documents/critics-review-pr-<PR番号>-backend.md` — バックエンド関連の懸念点
-- `documents/critics-review-pr-<PR番号>-frontend.md` — フロントエンド関連の懸念点
+- `temp-docs/critics-review-pr-<PR番号>-backend.md` — バックエンド関連の懸念点
+- `temp-docs/critics-review-pr-<PR番号>-frontend.md` — フロントエンド関連の懸念点
 
 分割の判断基準:
 - 変更ファイルが `backend/` と `frontend/` の両方に存在する
@@ -334,9 +339,9 @@ PRの変更ファイルがフロントエンド・バックエンドの両方に
 - これにより、ドキュメント間で番号が重複しない
 
 分割しない場合（片方のみの変更、または懸念点が少ない場合）:
-- `documents/critics-review-pr-<PR番号>.md` に単一ファイルとして保存する
+- `temp-docs/critics-review-pr-<PR番号>.md` に単一ファイルとして保存する
 
-`documents/` ディレクトリが存在しない場合はプロジェクトルートに保存する。
+`temp-docs/` ディレクトリが存在しない場合は作成してから保存する。
 
 ### 既存ドキュメントがある場合の保存方式
 
@@ -411,7 +416,7 @@ PRの変更ファイルがフロントエンド・バックエンドの両方に
 - 通常の出力フォーマットで新規作成する（対応不要・対応済みセクションは空で生成しない）
 - すべての懸念点を `<details>` トグル形式で出力する
 
-保存後、パスを簡潔に報告する。
+保存後、作成・更新したすべての相対パスを `CRITICS_PATHS` の exact list として報告する。呼び出し元が固定パスを再探索せず、そのまま後続の更新・stage・最終報告に使える形式にする。
 
 ### クリーンアップ
 

@@ -18,10 +18,14 @@ description: レビュードキュメントの懸念点を対応済みに更新�
 
 `gh pr view --json number` で現在のブランチに紐づくPR番号を取得し、以下のパターンで検索する:
 
-- `**/critics-review-pr-{PR番号}*.md`
+- `**/critics-review-pr-{PR番号}.md`
+- `**/critics-review-pr-{PR番号}-backend.md`
+- `**/critics-review-pr-{PR番号}-frontend.md`
 - `**/review-decisions-pr-{PR番号}*.md`
 - `**/test-design-pr-{PR番号}*.md`
 
+`*-resolved.md`は要約成果物なのでactiveなcritics reviewの候補から除外する。
+critics reviewの検索結果から、アーカイブ用ディレクトリ（例: `.archive/past-critics/`）配下のarchiveを除外する。
 候補が複数見つかった場合は、すべてのファイルを対象とする。
 PR番号が取得できない場合は、ユーザーにパスを指定するよう求める。
 
@@ -124,7 +128,7 @@ PR番号が取得できない場合は、ユーザーにパスを指定するよ
 
 ### 5. resolvedファイルの要約
 
-更新後、`../summarize-resolved/SKILL.md` を読み、その手順に従って resolved ファイルを要約する。
+更新後、`/summarize-resolved` を invoke して resolved ファイルを要約する。
 
 ### 6. 結果の報告
 

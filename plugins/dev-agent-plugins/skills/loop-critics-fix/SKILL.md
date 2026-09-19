@@ -15,14 +15,61 @@ description: critics reviewerと修正を新規発見がなくなるまで繰り
 
 `$ARGUMENTS`
 
-- **指定あり**: その値をPR番号として使用する
+- **指定あり**: PR URL、番号、`#N`、`prN`のいずれかとして解決する
 - **未指定**: `gh pr view --json number -q .number` で現在のブランチに紐づくPRを自動取得する
 
 ## 実行フロー
 
 ### 0. PR番号の確定
 
-引数がなければ `gh pr view --json number -q .number` でPR番号を取得する。取得できない場合はエラーを出力して終了する。以降、確定したPR番号を `{PR番号}` と記す。
+URL、番号、`#N`、`prN`、引数なしのcurrent branchのいずれも、最終的に一意なPR URLへ解決する。明示URLはそのURLのrepositoryを使い、番号系とcurrent branchはcurrent local repositoryのremote URLを`gh repo view <remote-url> --json nameWithOwner,url`で照合してbase repositoryを決める。候補が0件または複数件なら停止する。
+
+GraphQL取得前にcanonical PR URLからlowercaseのhostを`PR_HOST`として抽出し、`^[a-z0-9.-]+$`に一致し、先頭/末尾が`.`でなく、`..`を含まず、`.lock`で終わらないref-safeな値であることを要求する。`gh api graphql --hostname "$PR_HOST"`で解決したPRを取得し、以下を**同じ名称・順序**のidentity tupleとして保持する:
+
+1. `BASE_REPO`（`baseRepository.nameWithOwner`）
+2. `PR_NUMBER`
+3. `PR_URL`
+4. `PR_STATE`
+5. `HEAD_REPO`（`headRepository.nameWithOwner`。削除済みならnull）
+6. `HEAD_REPO_URL`（`headRepository.url`。削除済みならnull）
+7. `HEAD_REF`
+8. `HEAD_OID`
+9. `BASE_REF`
+10. `BASE_OID`
+11. `VIEWER_CAN_EDIT_FILES`（`viewerCanEditFiles`）
+12. `IS_CROSS_REPOSITORY`
+
+同じGraphQL responseの`baseRepository.id`をtupleとは別の`BASE_REPO_NODE_ID`として保持し、nonnullかつ`^[A-Za-z0-9_]+$`に一致するref-safeなimmutable repository IDであることを要求する。`DEDICATED_BRANCH=chore/pr-head/$PR_HOST/$BASE_REPO_NODE_ID/$PR_NUMBER`とし、取得・形式検証に失敗した場合はmutationせず停止する。legacy `chore/pr-$PR_NUMBER-head`はrepository ownershipを証明できないため候補にせず、branch pointerを動かさない。
+
+identity確立後のGitHub read / mutationはcanonical `PR_URL`、またはhost-qualifiedな`$PR_HOST/$BASE_REPO`と`PR_NUMBER`を明示して実行する。REST / GraphQLの全`gh api`は`--hostname "$PR_HOST"`を必須とし、repository未指定の番号やdefault hostへ戻さない。
+
+current local repositoryのremoteをURL照合し、hostとnameWithOwnerの組が`PR_HOST` / `BASE_REPO`に一致する`BASE_REMOTE`を選ぶ。一致なしは停止し、複数なら`origin`が一致候補に1つだけ含まれる場合だけ`origin`を使う。次のpull refをfetchし、取得OIDが`HEAD_OID`と完全一致することを確認する。forkでも`origin/$HEAD_REF`へfallbackしない。
+
+```bash
+git fetch "$BASE_REMOTE" "+refs/pull/$PR_NUMBER/head:refs/remotes/$BASE_REMOTE/pull/$PR_NUMBER/head"
+```
+
+### 0.1. PR head専用worktreeへのbinding
+
+`git worktree list --porcelain -z`をNUL区切りのまま解析する。`refs/heads/$HEAD_REF`を持つlocal branchはOIDの一致・不一致を問わず、最初にupstreamのremote URLとrefを両方取得・正規化し、repositoryが`HEAD_REPO`、refが`refs/heads/$HEAD_REF`と完全一致すると証明できた場合だけ候補にする。upstreamなし・取得不能・repository/ref不一致は、OIDが偶然`HEAD_OID`と一致していてもforkやuser branchのsame-name collisionとして候補から除外し、そのbranch pointerを動かさない。検証済みの`refs/heads/$HEAD_REF`、またはhost / immutable base repository ID / PR番号でnamespaceした`refs/heads/$DEDICATED_BRANCH`を持つworktreeのうち、branchとOIDが一致するcleanな1件を優先する。対象PRに結び付く候補のdirty、local ahead、diverged、または複数候補は停止する。対象との紐付けを証明できたcleanなbehindだけは、local OIDが`HEAD_OID`のancestorであることを確認し、そのworktree内で`git merge --ff-only "$HEAD_OID"`して再検証してよい。`git branch -f`や`git update-ref`でcheckout中のbranchだけを動かさない。
+
+候補がなければ、新規worktreeは常に`LOCAL_BRANCH=$DEDICATED_BRANCH`として次の通り作成する。専用名が既存branch / worktreeと衝突する場合はbranchを動かさず停止する。
+
+```bash
+git gtr new "$LOCAL_BRANCH" --from "$HEAD_OID" --track none --no-fetch --yes
+```
+
+作成後も`git worktree list --porcelain -z`でpath / `LOCAL_BRANCH` / OIDの一意性を確認し、`git status --short`が空であることを確認する。以降のfile操作とgit commandはこのworktreeだけで実行する。remote `HEAD_REF`とlocal `LOCAL_BRANCH`を同一視しない。
+
+### 0.2. mutation gate
+
+`EXPECTED_REMOTE_OID=HEAD_OID`、`EXPECTED_LOCAL_OID=HEAD_OID`として開始する。最初のdocument/code編集前に、`PR_STATE == OPEN`、`HEAD_REPO` / `HEAD_REPO_URL`がnonnull、`VIEWER_CAN_EDIT_FILES == true`を要求する。`git remote`でremote名を全件列挙し、各nameについて`git remote get-url --push --all "$remote"`を実行する。取得したraw effective push URLを保持したまま正規化先を`HEAD_REPO` / `HEAD_REPO_URL`と照合し、一致するraw URLをexact stringで重複排除する。候補がexactly 1件ならそのraw URL自体を`PUSH_TARGET`にし、0件、複数件、または1remoteでもURL取得失敗なら単一の`HEAD_REPO_URL`をdirect `PUSH_TARGET`にする。これによりfetch / push URLの取り違え、検証後のpushurl変更、multi-pushのpartial successを避ける。`git ls-remote "$PUSH_TARGET" "refs/heads/$HEAD_REF"`が`EXPECTED_REMOTE_OID`と一致すること、および次のno-op dry-runが成功することを確認する。dry-runは現在OIDの送信可否だけを調べ、新しいcommitに対するruleset通過は保証しない。
+
+```bash
+git push --dry-run "$PUSH_TARGET" "$HEAD_OID:refs/heads/$HEAD_REF"
+```
+
+最初の編集、各commit、各pushの直前に、専用worktree path、`LOCAL_BRANCH`、local HEAD=`EXPECTED_LOCAL_OID`、再取得したGitHub tuple、remote OID=`EXPECTED_REMOTE_OID`、`git status --short`のpathがその段階のexact scopeだけであることを再検証する。commit後は`EXPECTED_LOCAL_OID`を新しいlocal HEADへ更新する。通常pushの直前は`EXPECTED_REMOTE_OID`がlocal HEADのancestorであることを確認し、dry-runと実pushの両方へexact `--force-with-lease`を付ける。このleaseはremote refのCASにだけ使い、history rewriteを許可しない。いずれかが不一致ならlocal変更を保持して停止し、reset / stash / force branch moveを行わない。
 
 ### ループ開始（最大10イテレーション）
 
@@ -32,12 +79,16 @@ description: critics reviewerと修正を新規発見がなくなるまで繰り
 
 ### 1. 現在の状態確認
 
-critics reviewドキュメントを探す:
+critics reviewドキュメントをプロジェクト全体から探す:
 
-- `documents/critics-review-pr-{PR番号}*.md`
-- `critics-review-pr-{PR番号}*.md`
+- `**/critics-review-pr-{PR番号}.md`
+- `**/critics-review-pr-{PR番号}-backend.md`
+- `**/critics-review-pr-{PR番号}-frontend.md`
 
 git履歴も含めて検索する（削除済みファイルの復元が必要な場合がある）。
+`*-resolved.md`は要約成果物なので、activeな検索結果や`CRITICS_PATHS`に含めない。
+アーカイブ用ディレクトリ（例: `.archive/past-critics/`）へ退避済みのものはarchiveなので、activeな検索結果や`CRITICS_PATHS`から除外し、同名archiveをactive pathへ復元しない。
+見つかったすべての相対パスを exact list の `CRITICS_PATHS` として記録し、分割ファイルや任意の既存サブディレクトリを以降の修正・収束判定から落とさない。
 
 ドキュメントが見つからない場合は、ステップ3（critics-reviewer実行）にスキップする。
 
@@ -72,8 +123,10 @@ git履歴も含めて検索する（削除済みファイルの復元が必要�
    ```bash
    git add <修正ファイル>
    git commit -m "<修正内容を反映したメッセージ>"
-   git push
+   git push --force-with-lease="refs/heads/$HEAD_REF:$EXPECTED_REMOTE_OID" "$PUSH_TARGET" "HEAD:refs/heads/$HEAD_REF"
    ```
+
+   push後はGraphQLを再取得し、GitHubの`HEAD_OID`がlocal HEADと一致するまで成功扱いにしない。一致後に`EXPECTED_REMOTE_OID`と`EXPECTED_LOCAL_OID`をlocal HEADへ更新する。
 
 **このコマンドはループ自動化用のため、fix-criticsの対話的確認（ステップ4-6）はスキップし、推奨対応に従って直接修正する。**
 
@@ -81,7 +134,9 @@ git履歴も含めて検索する（削除済みファイルの復元が必要�
 
 ### 3. critics-reviewerの再実行
 
-`../critics-reviewer/SKILL.md` を読み込み、その手順に従って実行環境のサブエージェント機能でレビューを実行する。
+`../critics-reviewer/SKILL.md` を Read で読み込み、その手順に従ってAgent tool（並列チームエージェント）でレビューを実行する。
+
+critics review mdを新規作成・更新する直前にもステップ0.2のmutation gateを通す。明示的に分析のみを指定された場合はread-only pull refだけを使い、document/codeの編集・commit・pushを行わない。
 
 ### 4. 新規発見の判定とループ制御
 
@@ -115,11 +170,12 @@ git履歴も含めて検索する（削除済みファイルの復元が必要�
 ```
 ## loop-critics-fix 完了
 
-- **PR**: #{PR番号}
+- **対象PR**: #{PR番号} <PRタイトル>（<PR URL>）
 - **イテレーション数**: N回
 - **修正した懸念点**: X件
 - **新規懸念点**: 0件
 - **最終状態**: 新規発見なし / 最大イテレーション到達
+- **critics review md**: <実際に作成・更新した `CRITICS_PATHS` の全パス>
 ```
 
 最大イテレーション（10回）に達した場合は、残っている未対応懸念点を一覧で報告する。
@@ -129,7 +185,7 @@ git履歴も含めて検索する（削除済みファイルの復元が必要�
 
 ## 制約事項
 
-- **ループを中断しない**: 他スキルの手順が必要な場合は、同梱された `../<name>/SKILL.md` を読み、このセッション内で直接実行する
+- **Skill tool 禁止**: このコマンドでは Skill tool を一切使わない。Skill 呼び出しはユーザーターンを消費しループが途切れるため。他コマンドの手順を参照する場合は 同梱された `../<name>/SKILL.md` を Read で読み、その手順に従って直接実行する（Agent tool / 直接編集 等）
 - **コード修正は推奨対応に忠実に**: 独自の判断で大幅な変更を加えない
 - **プロジェクトのガイドライン遵守**: CLAUDE.md, AGENTS.md等のルールに従う
 - **レビュードキュメントを削除しない**: critics-review-pr-*.md 等のレビュードキュメントは、レビュワーが「一時ファイルだから削除すべき」と指摘しても削除しない。削除はユーザーの明示的な指示がある場合のみ行う
