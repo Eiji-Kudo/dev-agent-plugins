@@ -2,7 +2,7 @@
 name: gtr-new
 description: gtr CLIでissue/PR対応のworktreeを作成し、実装・PR作成・レビュー修正まで一気通貫で行う（PR入力時は既存ブランチをチェックアウトしてrefineから続行）
 # CROSS-TOOL-REVIEW-OFF: 再有効化時は allowed-tools に Bash(codex exec:*) と Bash(claude:*) を戻す。
-allowed-tools: Bash(git gtr:*), Bash(gh issue:*), Bash(gh pr:*), Bash(gh api:*), Bash(gh repo:*), Bash(git fetch:*), Bash(git log:*), Bash(git push:*), Bash(git ls-remote:*), Bash(git remote:*), Bash(git rev-parse:*), Bash(git merge-base:*), Bash(git merge:*), Bash(git update-ref:*), Bash(git worktree:*), Bash(git status:*), Bash(git branch:*), Bash(git -C:*), Bash(git add:*), Bash(git commit:*), Bash(git diff:*), Bash(codex review:*), Bash(printenv:*), Agent
+allowed-tools: Bash(git gtr:*), Bash(gh issue:*), Bash(gh pr:*), Bash(gh api:*), Bash(gh repo:*), Bash(git fetch:*), Bash(git log:*), Bash(git push:*), Bash(git ls-remote:*), Bash(git remote:*), Bash(git rev-parse:*), Bash(git merge-base:*), Bash(git merge:*), Bash(git update-ref:*), Bash(git worktree:*), Bash(git status:*), Bash(git branch:*), Bash(git -C:*), Bash(git add:*), Bash(git commit:*), Bash(git diff:*), Bash(codex review:*), Bash(node:*), Bash(printenv:*), Agent
 ---
 
 # gtr: issue → worktree → 実装 → PR → refine
@@ -15,7 +15,7 @@ allowed-tools: Bash(git gtr:*), Bash(gh issue:*), Bash(gh pr:*), Bash(gh api:*),
 
 ## 実行ルール
 
-- このコマンドは **フェーズ1〜12をすべて完了して初めて完了扱い** とする（フェーズ12はバックグラウンドAgentの起動だけでなく、最終レビューラウンドの結果確認をもって完了とする）。GitHub Codexのusage limitを確認した場合は、後述のlocal `codex review` fallbackを必ず実行する。fallbackも利用枠枯渇で実行不能な場合だけ、フェーズ11〜12の残りをスキップ済みとして完了扱いにできる
+- このコマンドは **フェーズ1〜12をすべて完了して初めて完了扱い** とする（フェーズ12はバックグラウンドAgentの起動だけでなく、最終レビューラウンドの結果確認をもって完了とする）。例外は、フェーズ11または修正後の再依頼直前に`jev-refine`が保守的なANDゲートを満たし、同じ最終head / base / review contextへbindingされた`JEV_REFINE_TERMINAL`を検証できた場合であり、Codex依頼とフェーズ12の残りを収束済みとして省略できる。GitHub Codexのusage limitを確認した場合は、後述のlocal `codex review` fallbackを必ず実行する。fallbackも利用枠枯渇で実行不能な場合だけ、フェーズ11〜12の残りをスキップ済みとして完了扱いにできる
 - 実行開始時に、以下のチェックリストを内部で作成して管理すること:
   - フェーズ1: セットアップ
   - フェーズ2: 実装
@@ -27,14 +27,16 @@ allowed-tools: Bash(git gtr:*), Bash(gh issue:*), Bash(gh pr:*), Bash(gh api:*),
   - フェーズ8: Ready for Review
   - フェーズ9: PR解説md作成（pr-explain）
   - フェーズ10: critics review の要約・一時成果物除外（summarize-resolved）
-  - フェーズ11: 最終headへのAIレビュー依頼（request-ai-review。GitHub Codexのusage limit時はlocal `codex review`へfallback）
+  - フェーズ11: Jev収束ゲート → 必要時のみ最終headへのAIレビュー依頼（GitHub Codexのusage limit時はlocal `codex review`へfallback）
   - フェーズ12: AIレビュー出揃い監視 → review-comment-analysis 自動実行（同fallback条件を引き継ぐ）
 - 中間報告では、**完了したフェーズ番号** と **未完了フェーズ番号** を明示すること
 - フェーズ3（PR作成）完了時点では、**絶対に完了報告しない**。その時点は「中間報告」であり、必ず refine 以降へ進むこと
-- `loop-critics-fix`、`pr-test`、`CI チェック`、`PR description更新`、`Ready for Review`、`pr-explain`、`summarize-resolved`、`request-ai-review` は原則省略不可。ユーザーに見えるUI変更でスクリーンショットがレビュー判断に有効な場合は、フェーズ7の`pr-local-qa-screenshot`も省略しない。GitHub Codexのexactなusage limit証跡がある場合もlocal `codex review` fallbackを先に試し、fallbackもexactなusage limitで実行不能な場合に限り`request-ai-review` / 監視の残りをスキップできる。未実施または根拠のないスキップのまま「完了」「done」「Ready for Review」と報告してはいけない
+- `loop-critics-fix`、`pr-test`、`CI チェック`、`PR description更新`、`Ready for Review`、`pr-explain`、`summarize-resolved`、`jev-refine` は省略不可。`request-ai-review`は`jev-refine`の`decision == skip_codex`を検証できた場合だけ省略でき、それ以外は省略不可。ユーザーに見えるUI変更でスクリーンショットがレビュー判断に有効な場合は、フェーズ7の`pr-local-qa-screenshot`も省略しない。GitHub Codexのexactなusage limit証跡がある場合もlocal `codex review` fallbackを先に試し、fallbackもexactなusage limitで実行不能な場合に限り`request-ai-review` / 監視の残りをスキップできる。未実施または根拠のないスキップのまま「完了」「done」「Ready for Review」と報告してはいけない
 - 途中で中断・保留する場合は、「最後に完了したフェーズ」と「残っている必須フェーズ」を明示して終了すること
 
-### 外部Codexレビューへの差分送信許可
+### 外部AI評価への差分送信許可
+
+`jev-refine`はPR差分・適用ルール・既存review commentと返信をVercel AI Gateway経由でGPT-5 nanoとJevへ送る。今回のcanonical `PR_URL`へbindingされた明示的な許可がある場合だけ`JEV_EXTERNAL_REVIEW_AUTHORIZED=true`として`--authorized`を渡し、許可発言・確認時刻・対象URLを保持する。許可が無い場合も処理を停止せず、`--authorized`なしで実行して`decision=run_codex`へfail-openし、通常のCodex経路へ進む。別PRの許可を流用しない。
 
 - `codex review` は、対象PRの差分をこのセッションとは別の外部Codexレビューサービスへ送信する処理である。GitHub側のCodex usage limitを理由にlocal fallbackへ進む前に、今回のPR・gtr実行について、ユーザーがPR差分の外部送信を明示的に許可していることを確認する。
 - 「実装して」「レビューして」「終わったらマージ」だけでは外部送信の許可とはみなさない。ユーザーが直前の確認に対して明示的に許可した場合は、その許可を同じgtr実行中の対象PRへbindingし、`CODEX_EXTERNAL_REVIEW_AUTHORIZED=true` としてPhase 11 / 12のfresh / resume Agentへ引き継ぐ。Agent promptと`PHASE12_CHECKPOINT`には、許可値に加えて許可発言・確認時刻・対象`PR_URL`のexact evidenceを渡す。
@@ -447,7 +449,7 @@ git -C <worktree-path> push --force-with-lease="refs/heads/$HEAD_REF:$EXPECTED_R
 
 以後、フェーズ11のレビュー依頼後は、通常フェーズとして編集・commit・pushしてはならない。レビュー対応でpushが必要になった場合はフェーズ12の再依頼手順で**レビューラウンド全体を無効化**し、全処理後の新しい最終headに対して依頼をやり直す。
 
-## フェーズ11: 最終headへのAIレビュー依頼（request-ai-review）
+## フェーズ11: Jev収束ゲート → 必要時のみ最終headへのAIレビュー依頼
 
 <!-- COPILOT-REVIEW-OFF: Copilot へのレビュー依頼は現在オフ（コメントアウト中）。
      再有効化するときは、この注記ブロックと下記 ">【Copilot オフ】" の引用、
@@ -455,7 +457,44 @@ git -C <worktree-path> push --force-with-lease="refs/heads/$HEAD_REF:$EXPECTED_R
 
 > **【Copilot オフ】** request-ai-review の手順を実行する際、**Copilot へのレビュー依頼はスキップ**し、**Codex のみ**に依頼する。Geminiもskipし、baseline取得・依頼・監視の対象に含めない。Copilot / Gemini を「依頼済みレビュアー」に含めないこと（→ フェーズ12の監視対象からも自動的に外れる）。
 
-`../request-ai-review/SKILL.md` を Read で読み込み、reviewer policyへ`copilot: disabled`、`codex: enabled`、`gemini: disabled`を明示して、その各手順を保持済み`PR_URL`とidentityへbindingしCodexにレビュー依頼を送る。Geminiはskipし、availability分類・baseline取得・依頼・監視を行わない。下位手順にある裸の`gh pr ... <PR番号>`は`PR_URL`指定、全`gh api`は`--hostname "$PR_HOST"`、repo引数は`$PR_HOST/$BASE_REPO`へ置き換える。裸のPR番号・current repository・default hostから再解決しない。
+### 11.0. Jev収束ゲート
+
+`../jev-refine/SKILL.md`をReadで全文読み、その解決済み親directoryを`<jev-refine-skill-dir>`として保持し、Skill toolは使わず同skillのscriptを直接実行する。最終通常push後のcleanなworktreeで、full identity、base、local HEAD、raw remote tracking ref、GitHub `HEAD_OID`の一致を確認してから実行する。今回の`PR_URL`へbindingされた`JEV_EXTERNAL_REVIEW_AUTHORIZED=true`がある場合だけ`--authorized`を付け、無ければ付けない。
+
+```bash
+node "<jev-refine-skill-dir>/scripts/jev-refine.mjs" \
+  --pr "$PR_URL" \
+  --worktree "<worktree-path>" \
+  [--authorized]
+```
+
+標準出力のfull JSONを加工せず`JEV_REFINE`として保持する。`decision=run_codex`、実行不能、JSON不正、または下記検証失敗はすべてfail-openとしてこの後の通常Codex経路へ進む。候補は追加contextに使ってよいが確定findingとして扱わない。
+
+`decision=skip_codex`の場合だけ、最終roundで全candidate risk `<= 0.10`、coverage / convergence `>= 0.90`、generator coverage complete、未解消ambiguity 0件、結果の`headOid` / `baseOid`がcurrent identityと一致し、`contextDigest`がnonnullであることを親が再検証する。worktree / identity / base / 3者headも実行後に再取得して不変であれば、次を保持する:
+
+```
+JEV_REFINE_TERMINAL:
+  state: skip_codex
+  source: phase11_initial | phase12_post_fix
+  evaluated_at: <評価完了時刻>
+  pr_url: <canonical PR_URL>
+  head_oid: <JEV_REFINE.headOid>
+  base_ref: <JEV_REFINE.baseRef>
+  base_oid: <JEV_REFINE.baseOid>
+  context_digest: <JEV_REFINE.contextDigest>
+  decision: skip_codex
+  rounds: <実行round数>
+  max_candidate_risk: <最終round値>
+  coverage: <最終round値>
+  convergence: <最終round値>
+  estimated_cost_usd: <値またはnull>
+  full_result: <JEV_REFINE full JSON>
+  identity: <検証済み12-field identityと補助identity>
+```
+
+`source=phase11_initial`ならrequest-ai-reviewを送らず、フェーズ11をJev gate完了、フェーズ12を「Jev gateにより不要」として完了できる。ただしCodexが指摘0件だったとは表現せず、「Codex未実施、Jev収束ゲート通過」と報告する。評価後にbase/head/diff/rules/review conversationの変更を観測した場合はterminalを無効化し、新しい入力でgateを再実行する。
+
+`JEV_REFINE_TERMINAL`が成立しなかった場合だけ、`../request-ai-review/SKILL.md` を Read で読み込み、reviewer policyへ`copilot: disabled`、`codex: enabled`、`gemini: disabled`を明示して、その各手順を保持済み`PR_URL`とidentityへbindingしCodexにレビュー依頼を送る。Geminiはskipし、availability分類・baseline取得・依頼・監視を行わない。下位手順にある裸の`gh pr ... <PR番号>`は`PR_URL`指定、全`gh api`は`--hostname "$PR_HOST"`、repo引数は`$PR_HOST/$BASE_REPO`へ置き換える。裸のPR番号・current repository・default hostから再解決しない。
 
 ### Codex usage limit 時のlocal review fallback
 
@@ -585,7 +624,7 @@ CODEX_REVIEW_SKIP:
 
 ## フェーズ12: AIレビュー出揃い監視 → review-comment-analysis 自動実行
 
-Agent toolを `run_in_background: true` で起動し、`REQUIRED_REVIEWERS`のうち`AI_REQUESTS.status == requested`のreviewerに対する**今回の依頼境界より後の最終結果**を監視する。requiredなのに`incomplete`のreviewerがいれば待機で隠さずroundを`incomplete`として停止する。Copilotは依頼も監視もしない。フェーズ12はAgentの起動だけでは完了せず、最終レビューラウンドの結果を受け取って下記完了ゲートを満たすまで待つ。
+フェーズ11で`source=phase11_initial`の`JEV_REFINE_TERMINAL`が成立した場合はAgentを起動せず、下記12.2のJev経路を検証してフェーズ12を完了する。それ以外はAgent toolを `run_in_background: true` で起動し、`REQUIRED_REVIEWERS`のうち`AI_REQUESTS.status == requested`のreviewerに対する**今回の依頼境界より後の最終結果**を監視する。requiredなのに`incomplete`のreviewerがいれば待機で隠さずroundを`incomplete`として停止する。Copilotは依頼も監視もしない。フェーズ12はAgentの起動だけでは完了せず、最終レビューラウンドの結果または有効なJev terminalを受け取って下記完了ゲートを満たすまで待つ。
 
 ### 12.1. 監視Agentの起動
 
@@ -599,8 +638,10 @@ Agent toolを `run_in_background: true` で起動し、`REQUIRED_REVIEWERS`の�
 
 ```
 PHASE12_CHECKPOINT:
-  CHECKPOINT_VERSION: 9
+  CHECKPOINT_VERSION: 10
   CHECKPOINT_IDENTITY: <checkpoint時点の12-field identity + PR_HOST + BASE_REPO_NODE_ID + DEDICATED_BRANCH>
+  JEV_EXTERNAL_REVIEW_AUTHORIZED: <true | false。trueの場合は許可発言・確認時刻・対象PR_URLのexact evidenceを必須とする>
+  JEV_REFINE_TERMINAL: <前述のJev収束terminal構造 | null>
   CODEX_EXTERNAL_REVIEW_AUTHORIZED: <true | false。trueの場合は許可発言・確認時刻・対象PR_URLのexact evidenceを必須とする>
   CODEX_LOCAL_REVIEW: <前述のlocal fallback構造 | null>
   CODEX_REVIEW_SKIP: <前述のusage limitスキップ構造 | null>
@@ -829,9 +870,10 @@ thread返信前は`(request_round, analysis_iteration, thread_id, feedback_versi
 1件でも指摘を受け、code・分析md・cleanupのいずれかでcommit・pushした場合、検証済みself-push後に`ROUND_STATE = invalidated`、`ROUND_OUTCOME = findings`とし、**全reviewer分の現在ラウンドを無効化**する。他reviewerが既にterminalでも再利用しない。以後はoperational gateで指摘対応、返信・resolve、artifact-excluded repositoryの分析md除外をすべて完了し、cleanup / reply / feedbackにpendingがなく`GIT_MUTATION_STATE.state=idle`になった後にだけ、次の順序で新ラウンドを開始する:
 
 1. worktree clean、full identity、base、local/raw remote/GitHub headの一致を再検証する
-2. 直前roundの`REQUIRED_REVIEWERS`を`PREVIOUS_REQUIRED_REVIEWERS`として退避し、全targetについてrequest-ai-reviewの規則どおりtrigger直前baselineを取り直す
-3. `PREVIOUS_REQUIRED_REVIEWERS`を`TARGET_REVIEWERS`のexact setとして渡し、新しい`REQUEST_HEAD_OID` / base / identityを凍結して全required reviewerへ再依頼する。新しい`REQUIRED_REVIEWERS == TARGET_REVIEWERS == PREVIOUS_REQUIRED_REVIEWERS`を要求し、`REQUESTED_REVIEWERS`がrequired集合に満たなければ集合を縮めず`incomplete`として停止する
-4. 新しいserver `created_at`、trigger情報、reviewer別baselineを保存して`ROUND_STATE = active`へ戻し、同じ監視・分析を繰り返す
+2. `../jev-refine/SKILL.md`をReadで全文読み、同skillのscriptを新しいheadと最新review conversationへ直接実行する。今回のPRへbindingされた`JEV_EXTERNAL_REVIEW_AUTHORIZED=true`の場合だけ`--authorized`を渡す。`skip_codex`の全AND条件を検証できた場合はフェーズ11のschemaどおり`source=phase12_post_fix`の`JEV_REFINE_TERMINAL`をfull checkpointとともに返し、再依頼せず終了する。gate未達・不能・許可なしはfail-openして次へ進む
+3. 直前roundの`REQUIRED_REVIEWERS`を`PREVIOUS_REQUIRED_REVIEWERS`として退避し、全targetについてrequest-ai-reviewの規則どおりtrigger直前baselineを取り直す
+4. `PREVIOUS_REQUIRED_REVIEWERS`を`TARGET_REVIEWERS`のexact setとして渡し、新しい`REQUEST_HEAD_OID` / base / identityを凍結して全required reviewerへ再依頼する。新しい`REQUIRED_REVIEWERS == TARGET_REVIEWERS == PREVIOUS_REQUIRED_REVIEWERS`を要求し、`REQUESTED_REVIEWERS`がrequired集合に満たなければ集合を縮めず`incomplete`として停止する
+5. 新しいserver `created_at`、trigger情報、reviewer別baselineを保存して`ROUND_STATE = active`へ戻し、同じ監視・分析を繰り返す
 
 レビュー分析mdを返信に使うため一時commitする場合も、そのcommitと後続の除外commitでheadが変わる。必ず除外pushを先に完了してから再依頼し、最終AIレビューがcleanup後のhead全体を対象にするようにする。最終レビュー依頼後にはcleanupを行わない。
 
@@ -860,11 +902,13 @@ artifact-excluded repositoryでは、親がPR固有mdを最終diffから除外�
 
 ### 12.2. 最終レビューラウンド完了の確認
 
-Agentがbackgroundで起動されたことだけではフェーズ12完了にしない。Agentの最終結果を待ち、次をすべて確認して初めて完了とする:
+Agentがbackgroundで起動されたことだけではフェーズ12完了にしない。Agentの最終結果を待ち、該当する経路の条件をすべて確認して初めて完了とする:
+
+Jev経路では通常経路の`ROUND_OUTCOME == zero`を要求しない。代わりに`JEV_REFINE_TERMINAL.state == skip_codex`、full resultのANDゲート、許可証跡、canonical `PR_URL`、head / base / context digestを検証し、cleanなlocal/raw remote/GitHub headとfull identityがterminalに一致し、未処理の既存feedback、cleanup obligation、reply / resolve mutationが0件であることを要求する。`source=phase12_post_fix`では、修正前roundのfeedback ledgerと対応・cleanup evidenceも保持する。Jev経路は「Codex指摘0件」ではなく「Codex未実施、Jev収束ゲート通過」とする。
 
 通常のGitHub経路では以下の全条件を要求する。local fallback経路では`CODEX_LOCAL_REVIEW.state == complete`、最終iterationのactionable finding 0件、reviewed head/baseとcleanなlocal/raw remote/GitHub head/full identityの一致、GitHub側full feedback inventoryの未処理feedback 0件を再検証する。fallbackもusage limitのスキップ経路では通常経路の`ROUND_OUTCOME == zero`条件を要求せず、代わりに`CODEX_LOCAL_REVIEW.state == unavailable`と`CODEX_REVIEW_SKIP`全field、GitHubとlocalの両usage limit証跡、`profiles_tried`が`profile_order`の全profileを網羅し全entryが`usage_limit`であること、cleanな最終head / base / identity一致を再検証する。GitHub側usage limitだけ、または一部profileだけでは完了扱いにしない。
 
-- Agentが返した最新のfull `PHASE12_CHECKPOINT`を受け取り、`CHECKPOINT_VERSION`、`CHECKPOINT_IDENTITY`、`CODEX_LOCAL_REVIEW`、`CODEX_REVIEW_SKIP`、`ROUND_STATE` / `ROUND_OUTCOME`、両expected OID、current / previous boundary、両path list、previous required reviewers、iteration / round、request transition、request attempt ledger、feedback ledger、git mutation、cleanup obligations、reply / resolve threadsの全fieldが欠落なく復元・検証済み
+- Agentを起動した経路では最新のfull `PHASE12_CHECKPOINT`を受け取り、`CHECKPOINT_VERSION`、`CHECKPOINT_IDENTITY`、`JEV_EXTERNAL_REVIEW_AUTHORIZED`、`JEV_REFINE_TERMINAL`、`CODEX_LOCAL_REVIEW`、`CODEX_REVIEW_SKIP`、`ROUND_STATE` / `ROUND_OUTCOME`、両expected OID、current / previous boundary、両path list、previous required reviewers、iteration / round、request transition、request attempt ledger、feedback ledger、git mutation、cleanup obligations、reply / resolve threadsの全fieldが欠落なく復元・検証済み
 - `ROUND_STATE == active`、`ROUND_OUTCOME == zero`、`CURRENT_REQUEST_BOUNDARY`が最終request boundary、`EXPECTED_LOCAL_OID == EXPECTED_REMOTE_OID == REQUEST_HEAD_OID`で、checkpoint identity / current full identity / base / local / raw remote / GitHub headが一致する
 - ledger最新entryが`CURRENT_REQUEST_BOUNDARY`と同じcurrent attemptで`outcome=zero`、全`REQUIRED_REVIEWERS`のcomplete nonnull `terminal_evidence`を持ち、`incomplete_evidence=null`であり、同じatomic post-checkpointのglobal `ROUND_OUTCOME=zero`とexact一致する。historical `invalidated | invalidated_base_advanced`またはreason付き`incomplete` entryのevidenceをlatest zeroの代用にしない
 - `REQUEST_TRANSITION_STATE.state == complete`でledger最新entryのtransitionおよびcandidate / current boundaryが一致し、reviewer entryに`not_started | baseline_captured | write_prepared | write_outcome_unknown`がない。`REQUEST_ATTEMPT_LEDGER`全entryのboundary / outcome / invalidation reason / successor / terminal / incomplete evidenceを検証済み。`GIT_MUTATION_STATE.state == idle`で全cleanup obligationがartifact-excluded repositoryでは`completed`、normal repositoryでは`retained`かつgeneration / operation evidenceを検証済み。各reply / resolve chainのlatest `(feedback_version, generation)`が`complete`でexpected snapshot / reply / resolve evidenceがGitHub stateと一致し、旧generationは`complete | superseded`だけ、`superseded`はnonnull successor / supersession evidence付きである
@@ -881,9 +925,9 @@ background Agentが開始通知だけ返した、full checkpointを返さない�
 
 ## 最終報告
 
-最終報告の直前に`gh api graphql --hostname "$PR_HOST"`でidentity tupleを再取得し、最新の番号・タイトル・URLを保持する。取得に失敗した場合、PR識別fieldまたはbaseが最終request boundaryから変わった場合、GitHub `HEAD_OID`が`REQUEST_HEAD_OID`（local fallbackでは`CODEX_LOCAL_REVIEW.reviewed_head_oid`、usage limitスキップでは`CODEX_REVIEW_SKIP.request_head_oid`）・検証済みlocal HEAD・raw remote tracking refのいずれかと一致しない場合は`gtr-new 完了`を報告しない。local branchには`LOCAL_BRANCH`、remote branchには`HEAD_REF`を使う。
+最終報告の直前に`gh api graphql --hostname "$PR_HOST"`でidentity tupleを再取得し、最新の番号・タイトル・URLを保持する。取得に失敗した場合、PR識別fieldまたはbaseが最終terminalから変わった場合、GitHub `HEAD_OID`が`REQUEST_HEAD_OID`（Jev経路では`JEV_REFINE_TERMINAL.head_oid`、local fallbackでは`CODEX_LOCAL_REVIEW.reviewed_head_oid`、usage limitスキップでは`CODEX_REVIEW_SKIP.request_head_oid`）・検証済みlocal HEAD・raw remote tracking refのいずれかと一致しない場合は`gtr-new 完了`を報告しない。local branchには`LOCAL_BRANCH`、remote branchには`HEAD_REF`を使う。
 
-**フェーズ1〜12をすべて実行して各フェーズの完了を確認するか、GitHub usage limit後にlocal reviewを完了するか、local fallbackもusage limitで実行不能なことを検証した場合にのみ** 以下を表示:
+**フェーズ1〜12をすべて実行して各フェーズの完了を確認するか、有効なJev terminalを検証するか、GitHub usage limit後にlocal reviewを完了するか、local fallbackもusage limitで実行不能なことを検証した場合にのみ** 以下を表示:
 
 ```
 ## gtr-new 完了
@@ -893,24 +937,25 @@ background Agentが開始通知だけ返した、full checkpointを返さない�
 - **ブランチ**: <LOCAL_BRANCH>
 - **PR**: #<number> <title>（<PR URL>） (Ready for Review)
 - **refine**: 起動元セッション自身による1巡目のイテレーション数・修正件数・新規発見件数（0件であること）。`cross-tool review skipped: toggle off` と明記
-- **new findings**: 0件
+- **new findings**: 通常 / local Codex経路は0件。Jev経路は「Codex未実施（Jev収束ゲート通過）」
 - **pr-test**: N回のイテレーション、X件のテストを追加（`TEST_ARTIFACT_PATHS`の実path）
 - **CI**: all passed
 - **PR解説md**: <`EXPLANATION_PATH`の実path。artifact-excluded repositoryでは最終diffから除外済みと明記>
 - **critics 要約**: <`CRITICS_PATHS`の全実path>を要約済み / スキップ（理由）。artifact-excluded repositoryでは最終diffから除外済みと明記
 - **フォローアップ issue**: #<番号> <タイトル>（URL） … / なし。※通常repositoryではPR description・PR解説md・critics mdの3成果物すべてへの反映、artifact-excluded repositoryではPR descriptionへの反映と一時md除外理由を併記
-- **AIレビュー依頼**: ~~Copilot（オフ）~~ / Codex / Gemini （各status、最終`REQUEST_HEAD_OID`、`REQUEST_STARTED_AT`、`TARGET_REVIEWERS`、`REQUIRED_REVIEWERS`、`REQUESTED_REVIEWERS`）。local fallback時は`codex review`のprofile・model・iteration・reviewed head/base・finding/actionable件数・terminal outputを明記し、fallbackもusage limitなら`Codex skipped: GitHub and local usage limit`と両証跡に加え試したprofile全件を明記
+- **Jev収束ゲート**: decision、source、round数、最大candidate risk、coverage、convergence、推定料金、head / base / context digest。未認可・不能・gate未達も理由を明記
+- **AIレビュー依頼**: Jev通過時は`Codex skipped: Jev convergence gate passed`。それ以外は~~Copilot（オフ）~~ / Codex / Gemini （各status、最終`REQUEST_HEAD_OID`、`REQUEST_STARTED_AT`、`TARGET_REVIEWERS`、`REQUIRED_REVIEWERS`、`REQUESTED_REVIEWERS`）。local fallback時は`codex review`のprofile・model・iteration・reviewed head/base・finding/actionable件数・terminal outputを明記し、fallbackもusage limitなら`Codex skipped: GitHub and local usage limit`と両証跡に加え試したprofile全件を明記
 - **AIレビュー分析md**: current `REVIEW_DECISION_PATHS`とappend-only history `CREATED_REVIEW_DECISION_PATHS`。artifact-excluded repositoryではhistory全件を最終diffから除外済み、normal repositoryでは残存pathを併記
-- **AIレビュー最終round**: reviewer/channel別response artifact件数・抽出指摘件数、dedupe後指摘総数、再依頼回数、明示head / requested_at / exact bot / unique successful-attempt correlation確認済み、`REQUESTED_REVIEWERS == REQUIRED_REVIEWERS`、`incomplete` 0件、feedback ledgerのpending 0件、未対応指摘0件。local fallback完了時はGitHub reviewがquotaで未実施だったこととlocal reviewのactionable finding 0件を区別して明記する。fallbackもusage limitのスキップ時は「指摘0件」と表現せず、両usage limit証跡とfull inventory上の未処理feedback 0件を明記する。self-push / base advance / incomplete retryがあればrequest attempt ledgerのinvalidated reason、boundary rotation、旧feedback非再利用も明記
-- **Phase12 checkpoint**: 最終`PHASE12_MODE`、`CHECKPOINT_VERSION` / `ROUND_STATE` / `ROUND_OUTCOME` / expected OID、current / previous boundary、`ANALYSIS_ITERATION` / `REQUEST_ROUND`、request transitionとappend-only request attempt / feedback ledger、git mutation idle、cleanup generation obligations、reply / resolve thread entries、両path listをfull checkpointから検証済み。local fallback時は`CODEX_LOCAL_REVIEW`全field、fallbackもusage limitのスキップ時は加えて`CODEX_REVIEW_SKIP`全fieldと最終head / base / identity検証結果を明記
+- **AIレビュー最終round**: Jev通過時はCodex未実施、Jev terminalのsourceと未処理feedback 0件を明記。それ以外はreviewer/channel別response artifact件数・抽出指摘件数、dedupe後指摘総数、再依頼回数、明示head / requested_at / exact bot / unique successful-attempt correlation確認済み、`REQUESTED_REVIEWERS == REQUIRED_REVIEWERS`、`incomplete` 0件、feedback ledgerのpending 0件、未対応指摘0件。local fallback完了時はGitHub reviewがquotaで未実施だったこととlocal reviewのactionable finding 0件を区別して明記する。fallbackもusage limitのスキップ時は「指摘0件」と表現せず、両usage limit証跡とfull inventory上の未処理feedback 0件を明記する。self-push / base advance / incomplete retryがあればrequest attempt ledgerのinvalidated reason、boundary rotation、旧feedback非再利用も明記
+- **Phase12 checkpoint**: Jev初回通過時はAgent未起動とterminal再検証結果、post-fix通過時は`JEV_REFINE_TERMINAL`を含むfull checkpointを明記。それ以外は最終`PHASE12_MODE`、`CHECKPOINT_VERSION` / `ROUND_STATE` / `ROUND_OUTCOME` / expected OID、current / previous boundary、`ANALYSIS_ITERATION` / `REQUEST_ROUND`、request transitionとappend-only request attempt / feedback ledger、git mutation idle、cleanup generation obligations、reply / resolve thread entries、両path listをfull checkpointから検証済み。local fallback時は`CODEX_LOCAL_REVIEW`全field、fallbackもusage limitのスキップ時は加えて`CODEX_REVIEW_SKIP`全fieldと最終head / base / identity検証結果を明記
 - **次のステップ**:
   - `git gtr ai <LOCAL_BRANCH>` でClaude Code起動
   - `git gtr editor <LOCAL_BRANCH>` でエディタ起動
 ```
 
 - `gtr-new 完了` を出す条件として、`loop-critics-fix` の最終結果で **新規懸念点が 0 件** であることを確認すること
-- 通常経路では最終AIレビューroundがcleanup後の`REQUEST_HEAD_OID`へbindingされ、`incomplete`と未対応指摘がともに0件であることを確認すること。local fallback経路では`CODEX_LOCAL_REVIEW`がcleanup後の最終head/baseへbindingされactionable findingが0件、fallbackもusage limitのスキップ経路では`CODEX_REVIEW_SKIP`が同headへbindingされ、未処理feedbackが0件であることを確認すること
-- `new findings` は必須項目。0件でない場合は `完了` を出してはいけない
+- Jev経路では`JEV_REFINE_TERMINAL`がcleanup後の最終head/base/contextへbindingされ、未処理feedbackが0件であることを確認すること。通常経路では最終AIレビューroundがcleanup後の`REQUEST_HEAD_OID`へbindingされ、`incomplete`と未対応指摘がともに0件であることを確認すること。local fallback経路では`CODEX_LOCAL_REVIEW`がcleanup後の最終head/baseへbindingされactionable findingが0件、fallbackもusage limitのスキップ経路では`CODEX_REVIEW_SKIP`が同headへbindingされ、未処理feedbackが0件であることを確認すること
+- `new findings` は必須項目。通常 / local Codex経路で0件でない場合は`完了`を出してはいけない。Jev経路では0件と偽装せず、Codex未実施を明記する
 
 ## 制約事項
 
@@ -918,4 +963,4 @@ background Agentが開始通知だけ返した、full checkpointを返さない�
 - **Agent toolの利用**: フェーズ12の監視タスクのみ Agent tool を `run_in_background: true` で使用してよい。他フェーズではAgent toolを使わない
 - **プロジェクトのガイドライン遵守**: CLAUDE.md, AGENTS.md等のルールに従う
 - **日本語で報告**
-- **フェーズ未完了で完了扱い禁止**: いずれかの必須フェーズが未実施・未確認なら、完了報告をしてはいけない。例外は、GitHub usage limit後に`CODEX_LOCAL_REVIEW.state == complete`まで収束した場合、またはlocal fallbackもexactなusage limitで実行不能な`CODEX_REVIEW_SKIP`を検証した場合だけ
+- **フェーズ未完了で完了扱い禁止**: いずれかの必須フェーズが未実施・未確認なら、完了報告をしてはいけない。例外は、有効な`JEV_REFINE_TERMINAL`でCodex経路を省略した場合、GitHub usage limit後に`CODEX_LOCAL_REVIEW.state == complete`まで収束した場合、またはlocal fallbackもexactなusage limitで実行不能な`CODEX_REVIEW_SKIP`を検証した場合だけ

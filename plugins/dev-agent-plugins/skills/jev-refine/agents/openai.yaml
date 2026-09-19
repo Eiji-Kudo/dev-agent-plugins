@@ -1,0 +1,4 @@
+interface:
+  display_name: "Jev Refine"
+  short_description: "JevでCodex reviewの省略可否を判定"
+  default_prompt: "Use $jev-refine to decide conservatively whether this PR can skip another Codex review."
