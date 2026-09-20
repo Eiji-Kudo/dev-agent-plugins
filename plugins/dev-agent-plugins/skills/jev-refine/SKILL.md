@@ -11,7 +11,7 @@ Codex reviewの代替レビュアーではなく、親Agentの調査結果を採
 
 - canonical PR URLと検証済みworktreeを入力にする。対象headと収集contextのSHA-256 digestを凍結し、終了時にdiff・rules・review conversationを再収集して一致を確認する。
 - 親Agent自身がrepository、PR diff、適用される`AGENTS.md` / `CLAUDE.md`、既存のinline review comment・返信、top-level review、issue commentを調べ、候補JSONを作る。既存指摘は再発見として数えず、現在のdiffで未解消かを記録する。
-- Jevへ送るのはPR metadata、構造化候補、coverageだけで、生diffやrepository fileは送らない。対象PRへbindingされた明示的な許可がある場合だけ`--authorized`を付け、許可がない場合は外部callを行わず`run_codex`へfail-openする。
+- Jevへ送るのはPR metadata、構造化候補、coverageだけで、生diffやrepository fileは送らない。local policyにこの限定payloadの継続許可が記録されていればPRごとの再確認なしで`--authorized`を付ける。それ以外は対象PRへbindingされた明示的な許可がある場合だけ付け、許可がなければ外部callを行わず`run_codex`へfail-openする。許可を生diff、repository file、他の外部AI送信へ拡張しない。
 - `AI_GATEWAY_API_KEY`が無い、候補schema不正、入力超過、取得・API・context再検証のいずれかが失敗した場合も`run_codex`とする。エラーを高confidenceへ読み替えない。
 
 ## structured candidate
