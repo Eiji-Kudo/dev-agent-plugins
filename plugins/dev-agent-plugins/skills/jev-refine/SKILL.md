@@ -1,6 +1,6 @@
 ---
 name: jev-refine
-description: 親AgentがPR差分と既存review comment・返信から構造化した指摘候補をJevで採点し、高risk候補はsub-agent修正、低coverageは親Agentとの再調査、収束時はCodex review省略へ振り分ける。最終AIレビュー前やreview修正後の収束ゲートに使い、通常のコードレビュー生成には使わない。
+description: 親AgentがPR差分と既存review comment・返信から構造化した指摘候補をJevで採点し、高risk候補はsub-agent修正、低coverageは親Agentとの再調査、収束時はCodex review省略へ振り分け、最終結果をlocal精度ログへ記録する。最終AIレビュー前やreview修正後の収束ゲートに使い、通常のコードレビュー生成には使わない。
 ---
 
 # Jev refine
@@ -11,7 +11,7 @@ Codex reviewの代替レビュアーではなく、親Agentの調査結果を採
 
 - canonical PR URLと検証済みworktreeを入力にする。対象headと収集contextのSHA-256 digestを凍結し、終了時にdiff・rules・review conversationを再収集して一致を確認する。
 - 親Agent自身がrepository、PR diff、適用される`AGENTS.md` / `CLAUDE.md`、既存のinline review comment・返信、top-level review、issue commentを調べ、候補JSONを作る。既存指摘は再発見として数えず、現在のdiffで未解消かを記録する。
-- Jevへ送るのはPR metadata、構造化候補、coverageだけで、生diffやrepository fileは送らない。local policyにこの限定payloadの継続許可が記録されていればPRごとの再確認なしで`--authorized`を付ける。それ以外は対象PRへbindingされた明示的な許可がある場合だけ付け、許可がなければ外部callを行わず`run_codex`へfail-openする。許可を生diff、repository file、他の外部AI送信へ拡張しない。
+- local policyでJev / Codex reviewへのrepository・PR関連データの外部送信が継続許可済みなら、再確認なしで`--authorized`を付ける。それ以外は対象PRへの明示的な許可がある場合だけ付ける。
 - `AI_GATEWAY_API_KEY`が無い、候補schema不正、入力超過、取得・API・context再検証のいずれかが失敗した場合も`run_codex`とする。エラーを高confidenceへ読み替えない。
 
 ## structured candidate
@@ -82,3 +82,19 @@ node <skill-dir>/scripts/jev-refine.mjs \
 ## 料金記録
 
 各round JSONの`usage`と`estimatedCostUsd`を集計し、最終報告にround数・decision・最大candidate risk・coverage・convergence・Jev推定料金を記載する。候補作成とsub-agent修正は呼び出し元の利用枠であり、Jev料金へ含めない。価格取得に失敗した場合は推測せず`null`のまま報告する。
+
+## local精度ログ
+
+PR workflowの最終結果が確定したら、`scripts/record-evaluation.mjs`でrepo外のappend-only JSONLへ記録する。既定保存先は`$XDG_STATE_HOME/jev-refine/evaluations.jsonl`、未設定時は`~/.local/state/jev-refine/evaluations.jsonl`。diff、候補本文、review本文、repository fileは保存せず、PR identity、head/base/context digest、Jev score・decision・料金、後続Codexの件数だけを保存する。
+
+```bash
+node <skill-dir>/scripts/record-evaluation.mjs \
+  --input "<repository外のtemporary evaluation JSON>"
+
+node <skill-dir>/scripts/record-evaluation.mjs --summary
+```
+
+- 同じ`PR URL + headOid + contextDigest + round`は同一evaluationとして扱う。同一内容の再実行は追記せず、後から正解ラベルが得られた場合は同じIDの新revisionをappendする。
+- Jev後にGitHub Codexまたはlocal `codex review`を実行し、actionable finding数が確定した場合だけ`labelStatus=observed`とする。
+- `skip_codex`ではCodexを実行していないため`labelStatus=unlabelled`とする。これを正解や指摘0件に数えない。false approvalを測るには、将来別途shadow review等でskip標本へ正解ラベルを付ける必要がある。
+- 集計の`observedAccuracy`はラベル付き標本だけの値であり、`labelCoverage`と`skipLabelCoverage`を必ず併記する。`labelledSkipPredictions`が0ならskip精度は未測定と明記する。`convergenceBrierScore`も同じラベル付き標本だけで計算する。
