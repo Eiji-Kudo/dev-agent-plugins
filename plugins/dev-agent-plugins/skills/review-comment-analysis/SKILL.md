@@ -318,11 +318,13 @@ threadの`id`をresolve用の`THREAD_NODE_ID`、先頭のtop-level commentの`da
 
 #### 2.1. actorの厳密な識別
 
-AI reviewerはlogin完全一致とBot typeの両方で識別し、substring一致を禁止する:
+request boundaryへの到着判定に使うnamed AI reviewerはlogin完全一致とBot typeの両方で識別し、substring一致を禁止する:
 
 - Copilot: REST `copilot-pull-request-reviewer[bot]` / GraphQL `copilot-pull-request-reviewer`
 - Codex: REST `chatgpt-codex-connector[bot]` / GraphQL `chatgpt-codex-connector`
 - Gemini: REST `gemini-code-assist[bot]` / GraphQL `gemini-code-assist`
+
+このnamed AI reviewer判定と、review threadの返信文体・resolveに使う`reviewer_kind`は分離する。thread root authorがREST `user.type == Bot`またはGraphQL `author.__typename == Bot`なら`reviewer_kind=bot`、それ以外は`human`とする。Claude Reviewはworkflow実装上REST `github-actions[bot]` / GraphQL `github-actions`として投稿されるため、このBot型判定でメモ調・resolve対象に含める。`github-actions[bot]`をCopilot / Codex / Geminiのterminal arrivalとして数えたり、login文字列だけでBot判定したりしない。
 
 人間reviewerのfeedbackも通常の分析対象に含めるが、`AI_REQUESTS`のterminal arrivalとしては数えない。
 
@@ -489,8 +491,9 @@ dedupe後のすべてのfeedbackを個別の `<details>` トグル形式で出�
 - critics reviewで関連する意思決定がある場合、その判断内容と整合性（例: 「critics reviewで対応不要と判断済み（理由: ...）」）
 
 **返信案**: レビューコメントへの返信文章を、レビュー投稿者に応じた文体で構造化して作成する。
-- AI reviewer / bot（例: Copilot, codex, chatgpt-codex-connector 等）への返信案は敬語を使わず、PR description の追記メモのような簡潔な常体で書く
-- AI reviewer / bot への返信案は必ず先頭で対応状況を明示する。修正した場合は `対応済み:`、修正しない場合は `対応不要:`、一部のみ対応した場合は `一部対応:` で始める（例: `対応済み: step 名を Terraform tests 全体を表す名前に更新した。` / `対応不要: terraform test は既存 state と分離して実行されるため、lock 無効化は追加しない。`）
+- `reviewer_kind=bot`（Copilot / Codex / Geminiに加え、Claude Reviewを投稿する`github-actions[bot]`を含む）への返信案は敬語を使わず、PR description の追記メモのような簡潔な常体で書く
+- Botへの返信では「ありがとうございます」「確認しました」「受領しました」「〜です」「〜ます」等の対人挨拶・丁寧語を使わない。レビューへの謝意や受領報告ではなく、対応事実・判断・検証結果だけを書く
+- Botへの返信案は必ず先頭で対応状況を明示する。修正した場合は `対応済み:`、修正しない場合は `対応不要:`、一部のみ対応した場合は `一部対応:` で始める（例: `対応済み: step名をTerraform tests全体を表す名前に更新。` / `対応不要: terraform testは既存stateと分離して実行されるため、lock無効化は追加しない。` / `対応不要: 修正内容とDB再取得テストを確認済み。追加対応なし。`）
 - 人間レビュアーへの返信案は丁寧な提案調で書く
 - reply-reviews では返信案をそのまま投稿するため、ここで投稿先に適した文体にしておく
 
@@ -849,8 +852,8 @@ push 完了後、分析・修正結果に基づいて未解決レビューコメ
 
 `../reply-reviews/SKILL.md` を Read で読み込み、その手順に従って PR #<PR番号> の未解決レビューコメントへ返信する。
 
-- 返信内容はproducerが返した`REVIEW_DECISION_PATHS`の完全なexact listから「返信案」を使用する。consumerへ同じlistをそのまま渡し、単一pathへ縮退または再探索しない。AI reviewer / bot 宛ては、分析ドキュメント作成時点で敬語なしのメモ調にし、先頭を `対応済み:` / `対応不要:` / `一部対応:` のいずれかにしておく
-- AI reviewer（bot）への返信後はスレッドを resolve し、人間レビュアーのスレッドは resolve しない（reply-reviews.md の手順に従う）
+- 返信内容はproducerが返した`REVIEW_DECISION_PATHS`の完全なexact listから「返信案」を使用する。consumerへ同じlistをそのまま渡し、単一pathへ縮退または再探索しない。`reviewer_kind=bot`宛ては、分析ドキュメント作成時点で対人挨拶・敬語なしのメモ調にし、先頭を `対応済み:` / `対応不要:` / `一部対応:` のいずれかにしておく。Claude Reviewの`github-actions[bot]`も含める
+- `reviewer_kind=bot`への返信後はスレッドを resolve し、人間レビュアーのスレッドは resolve しない（reply-reviews.md の手順に従う）
 - 既に返信済みのスレッドには二重投稿しない
 - 返信・resolve mutationは`Feedback channel == review_thread`かつcurrent `isResolved == false`の項目だけに行う。top-level review body、issue comment、timeline event等のthread外feedbackは分析・修正対象には含めるが、thread IDを捏造して返信・resolveしない
 - **Skill tool は使わず、reply-reviews.md の手順を直接実行すること**（gtr-new フェーズ12のバックグラウンド実行でも動くようにするため）

@@ -61,6 +61,8 @@ pull refの`HEAD_OID`にある`REVIEW_DECISION_PATHS`の**全exact path**を`git
 
 最初に全分析項目をchannel別に分ける。`Feedback channel == review_thread`で、`THREAD_NODE_ID`、`ROOT_COMMENT_DATABASE_ID`、`THREAD_SNAPSHOT_SHA256`がすべて実値の項目だけを返信・resolve候補にする。top-level review、issue comment、timeline event、threadへ一意に対応しないREST review comment等は分析・修正結果として報告するが、thread IDを推測・捏造してmutationしない。
 
+各threadはroot commentのauthor typeで`reviewer_kind`を決める。REST `user.type == Bot`またはGraphQL `author.__typename == Bot`なら`bot`、それ以外は`human`とする。Claude ReviewはREST `github-actions[bot]` / GraphQL `github-actions`として投稿されるため`bot`に含める。loginのsubstringや本文の自称だけでは判定しない。この分類は返信文体とresolve可否に使い、named AI reviewerのrequest boundary / terminal arrival判定は拡張しない。
+
 GitHub GraphQL APIの`reviewThreads`を使い、`isResolved == false`のthreadだけを全page取得する。各threadについて`PullRequestReviewThread.id`を`THREAD_NODE_ID`、先頭のtop-level commentの`databaseId`を`ROOT_COMMENT_DATABASE_ID`として保持し、分析ドキュメントのreview thread項目と一意に対応付ける。REST review commentの`node_id`は`PullRequestReviewComment`のIDであり、`resolveReviewThread`へ渡さない。
 
 ```graphql
@@ -111,15 +113,15 @@ gh api --hostname "$PR_HOST" "repos/$BASE_REPO/pulls/$PR_NUMBER/comments/$ROOT_C
 - `reply_pending | reply_outcome_unknown | resolve_pending`中に、許可した自分のexact reply / resolve以外の正当なexternal updateを検出した場合は、新feedback versionを`pending`でappendし、旧feedback / thread generationを`superseded`へ進める。新しいfeedback version / 次generationのnonnull successorとold/new snapshotのsupersession evidenceをproducerへ返して停止し、旧generationのreplyを再POSTもresolveもしない。再分析後のlatest successor generationだけを処理する
 - 対応済み（✅マーク付き）の返信案はそのまま投稿
 - CAN_IGNOREの返信案もそのまま投稿
-- current viewerが投稿済みの返信について、保存済みwrite operation / pre-write snapshot / author / bodyが今回の返信案（AI reviewer向けの補正文を含む）にexactに対応すると一意に検証できるthreadは、重複POSTだけをスキップする。時系列と同一bodyだけでは別実行の返信を採用しない。相手がAI reviewerならステップ5のresolve判定へ進む。対応を証明できなければPOSTもresolveも行わず停止する
+- current viewerが投稿済みの返信について、保存済みwrite operation / pre-write snapshot / author / bodyが今回の返信案（Bot向けの補正文を含む）にexactに対応すると一意に検証できるthreadは、重複POSTだけをスキップする。時系列と同一bodyだけでは別実行の返信を採用しない。`reviewer_kind=bot`ならステップ5のresolve判定へ進む。対応を証明できなければPOSTもresolveも行わず停止する
 - 新規POST成功後は対象threadを全page再取得し、直前の`EXPECTED_THREAD_SNAPSHOT`へcurrent viewerのexact replyが1件だけ追加され、他field・他comment・`isResolved`が変化していないことを確認してからsnapshotを更新する。競合変更があればreply済み・resolve未実施として停止する
-- 相手がAI reviewerの場合は敬語を使わず、PR descriptionのようなメモ調で返信する
-- 相手がAI reviewerの場合、返信本文の先頭は必ず `対応済み:` / `対応不要:` / `一部対応:` のいずれかにする。分析ドキュメントの返信案がこの形式でない場合は、投稿前に意味を変えずに文体と先頭ステータスだけ補正する
+- `reviewer_kind=bot`の場合は、Claude Reviewの`github-actions[bot]`を含め、敬語を使わずPR descriptionのようなメモ調で返信する。「ありがとうございます」「確認しました」「受領しました」「〜です」「〜ます」等の対人挨拶・丁寧語を削り、対応事実・判断・検証結果だけにする
+- `reviewer_kind=bot`の場合、返信本文の先頭は必ず `対応済み:` / `対応不要:` / `一部対応:` のいずれかにする。分析ドキュメントの返信案がこの形式・文体でない場合は、投稿前に意味を変えずに先頭ステータスと全文の文体を補正する。単なる対応確認への返信は、例えば `対応不要: 修正内容とDB再取得テストを確認済み。追加対応なし。` とする
 
 ### 5. スレッドのResolve
 
-- **相手がAI reviewer（bot）の場合**: 新規返信、またはステップ4で検証済みの既存返信を確認後、resolve直前の全page snapshotが`EXPECTED_THREAD_SNAPSHOT`と完全一致する場合だけ該当スレッドをresolvedにする。
-- **相手が人間のレビュアーの場合**: resolveしない。レビュアー本人が確認してresolveするのを待つ。
+- **`reviewer_kind=bot`の場合**: 新規返信、またはステップ4で検証済みの既存返信を確認後、resolve直前の全page snapshotが`EXPECTED_THREAD_SNAPSHOT`と完全一致する場合だけ該当スレッドをresolvedにする。
+- **`reviewer_kind=human`の場合**: resolveしない。レビュアー本人が確認してresolveするのを待つ。
 
 ```bash
 gh api graphql --hostname "$PR_HOST" \
@@ -157,6 +159,6 @@ thread外feedbackはchannel、namespaced feedback ID、分析上の対応状況�
 - producerから`REVIEW_DECISION_PATHS`を受け取った場合は全exact listを使用し、別pathへ置換・再探索しない
 - 分析結果の`VERIFIED_PUSHED_HEAD`と現在のGitHub `HEAD_OID`が一致しない場合は返信・resolveしない
 - PRがOPENでない、head repositoryが削除済み、または`VIEWER_CAN_EDIT_FILES`がfalseの場合は返信・resolveしない
-- 返信内容は分析ドキュメントの「返信案」をそのまま使用する。ただしAI reviewer宛てで先頭ステータスや文体が不適切な場合は、意味を変えずに `対応済み:` / `対応不要:` / `一部対応:` で始まるメモ調へ補正してから投稿する
+- 返信内容は分析ドキュメントの「返信案」を使用する。ただし`reviewer_kind=bot`宛てで先頭ステータス、敬語、対人挨拶が残る場合は、意味を変えずに `対応済み:` / `対応不要:` / `一部対応:` で始まるメモ調へ全文を補正してから投稿する
 - 検証済みの既存返信があるスレッドには二重投稿せず、fresh / resume executorがpreparedを受け取った場合とcreate POSTの結果不明時は0件でも自動再POSTしない。bot threadのresolveだけ未完了ならidempotent state setとしてresolve判定を再実行できる
 - 返信・resolveは未解決review thread項目だけに行い、thread外feedbackには行わない
